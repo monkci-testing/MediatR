@@ -1,7 +1,16 @@
 name: CI
-
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: 'Runner to use for the Linux benchmark job'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - ubuntu-latest
+          - monkci-ubuntu-24.04-4-3600iops
+          - all
   push:
     branches:
     - main
@@ -16,6 +25,8 @@ permissions:
   checks: write
 jobs:
   build:
+    # Primary Windows build job — kept as-is since Build.ps1/Push.ps1
+    # are PowerShell scripts that require windows-latest
     runs-on: windows-latest
     steps:
     - name: Checkout
@@ -71,4 +82,44 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: artifacts
+        path: artifacts/**/*
+
+  build_linux_benchmark:
+    # Separate Linux benchmark job to compare runner performance.
+    # Runs dotnet build and test only — skips PowerShell-specific steps
+    # (NuGetKeyVaultSignTool, Build.ps1, SBOM, Push.ps1) that require Windows.
+    name: Build and Test - Linux (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: ${{ github.event_name == 'workflow_dispatch' && inputs.runner != 'all' && fromJson(format('["{0}"]', inputs.runner)) || fromJson('["monkci-ubuntu-24.04-4-3600iops", "ubuntu-latest"]') }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4.2.0
+      with:
+        fetch-depth: 0
+        filter: tree:0
+    - name: Setup dotnet
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: |
+          8.0.x
+          9.0.x
+          10.0.x
+    - name: Build
+      run: dotnet build --configuration Release
+    - name: Test
+      run: dotnet test --configuration Release --no-build --logger trx --results-directory TestResults
+    - name: Report Test Results
+      uses: dorny/test-reporter@v1.9.1
+      if: success() || failure()
+      with:
+        name: Test Results (Linux - ${{ matrix.runner }})
+        path: '**/TestResults/**/*.trx'
+        reporter: dotnet-trx
+    - name: Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: artifacts-linux-${{ matrix.runner }}
         path: artifacts/**/*
