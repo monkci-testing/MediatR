@@ -7,7 +7,7 @@ on:
 
 jobs:
   build-test:
-    runs-on: [self-hosted, monkci-runners-4vcpu]
+    runs-on: monkci-ubuntu-24.04-2
 
     steps:
       - name: Checkout
